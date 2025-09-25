@@ -1,32 +1,63 @@
-# AIBUILD – Data Visualisation Dashboard
+# AIBUILD Data Visualisation Dashboard
 
-## Understanding of Requirements
-- Import Excel containing product opening inventory and day‑wise procurement & sales (qty & price).
-- Persist to own DB using an ORM.
-- Visualise per product in one line chart with 3 curves: Inventory, Procurement Amount (qty×price), Sales Amount (qty×price).
-- Provide basic username/password login using our own database; no commercial auth service.
+## Understanding of the requirements
+The client keeps procurement, sales and inventory data in Excel. The system needs to let users upload these Excel files, store the data, and show clear visualisations.  
 
-## Architecture & Data Flow
-Next.js (App Router) + API routes → Prisma ORM → SQLite DB.
-- Upload: user uploads `.xlsx` → API parses with `xlsx` → upsert Product and DailySnapshot rows, computing closing inventory as prev + procurement - sales.
-- Visualisation: client fetches `/api/series/:id` → renders 3 Recharts lines.
-- Auth: `/api/auth/login` verifies bcrypt hash in DB and issues a signed cookie via iron-session.
+For each product, one chart should display three lines:
+- Daily inventory  
+- Procurement amount (qty × price)  
+- Sales amount (qty × price)  
 
-## DB Schema
-- User(id, username, passwordHash)
-- Product(id, name, openingInventory)
-- DailySnapshot(id, productId, day, procurementQty, procurementPrice, salesQty, salesPrice, inventory)
+Users should be able to compare multiple products.  
+A basic login with username and password is also required.
 
-## Assumptions / Notes
-- Excel headers like `Procurement Qty (Day X)`, `Procurement Price (Day X)`, etc. Max day auto-detected.
-- Inventory is integer; qty/price numeric. Day is an index (1..N).
+## System structure
+- **Framework:** Next.js for both frontend UI and backend API routes  
+- **Frontend:** React pages and components for login, dashboard, file upload and charts  
+- **Charts:** Recharts to plot three series (inventory, procurement amount, sales amount)  
+- **APIs:**  
+  - `/api/auth/login` and `/api/auth/logout` handle session login/logout  
+  - `/api/upload` parses Excel and inserts rows into the database  
+  - `/api/products` returns product list  
+  - `/api/series/[id]` returns time-series data for one product  
+- **Database & ORM:** Prisma used for schema and queries; SQLite in local dev; Postgres connection string prepared for deployment  
+- **Auth & Session:** iron-session creates secure HTTP-only cookies after login  
+- **Excel processing:** xlsx library reads uploaded Excel file, converts into Product and DailySnapshot tables  
 
-## Local Run
-1) `pnpm install`
-2) `cp .env.example .env` and set `SESSION_SECRET` (>=32 chars)
-3) `pnpm prisma migrate dev --name init`
-4) `pnpm ts-node scripts/seed.ts` (creates admin/admin123)
-5) `pnpm dev` → http://localhost:3000 → login → upload Excel → select products → view charts
+**Data flow:**
+1. User logs in with username and password  
+2. Upload Excel → backend parses and saves data into `Product` and `DailySnapshot` tables  
+3. Dashboard fetches product list and data series from APIs  
+4. Charts display inventory, procurement and sales trends, with option to overlay products  
 
-## Deploy
-- Works on Vercel/Render/Fly; if using Vercel, consider hosted DB (Turso/Neon). Set env vars accordingly.
+## Assumptions and limitations
+- Authentication is basic (`admin` / `admin123`), enough for prototype  
+- Excel format must roughly follow expected columns (inventory, procurement, sales)  
+- Local version works fully; deployed version on Vercel has an API issue (login route returns 405).  
+  This is likely a build/output setting and can be fixed with more time.
+
+## Deployment Troubleshooting
+
+If the system runs locally but fails after deployment (e.g. login API returns 405), check the following:
+
+1. **Vercel settings**  
+   - Framework Preset = **Next.js**  
+   - Build Command = `next build` (not `next export`)  
+
+2. **Environment variables**  
+   - Ensure `DATABASE_URL` and `SESSION_SECRET` (at least 32 characters) are set in Vercel Project Settings → Environment Variables.  
+
+3. **API routes**  
+   - All backend endpoints must be under `pages/api/**`.  
+   - Remove any old `app/api/**` directories to avoid conflicts.  
+
+4. **Probe endpoint**  
+   Add a simple endpoint to confirm API routes are included in the deployment:  
+
+   `pages/api/ping.ts`  
+   ```ts
+   import type { NextApiRequest, NextApiResponse } from "next";
+
+   export default function handler(req: NextApiRequest, res: NextApiResponse) {
+     res.status(200).json({ ok: true, method: req.method, route: "pages/api/ping" });
+   }
