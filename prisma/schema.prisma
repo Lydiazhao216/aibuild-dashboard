@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Product {
+  id               Int    @id
+  name             String
+  openingInventory Int
+  snapshots        DailySnapshot[]
+}
+
+model DailySnapshot {
+  id               Int    @id @default(autoincrement())
+  productId        Int
+  day              Int
+  procurementQty   Float
+  procurementPrice Float
+  salesQty         Float
+  salesPrice       Float
+  inventory        Int
+  product          Product @relation(fields: [productId], references: [id])
+  @@unique([productId, day])
+}
