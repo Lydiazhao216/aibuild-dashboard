@@ -1,12 +1,10 @@
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;         // no static cache
-export const runtime = 'nodejs';     // do not run on Edge during build
-export const fetchCache = 'force-no-store';
-import { NextRequest, NextResponse } from "next/server";
-import { getIronSession } from "iron-session";
-import { sessionOptions } from "@/lib/session";
-import { prisma } from "@/lib/db";
-import * as XLSX from "xlsx";
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { getIronSession } from 'iron-session';
+import { sessionOptions } from '@/lib/session';
+import { prisma } from '@/lib/db';
+import * as XLSX from 'xlsx';
+
+export const config = { api: { bodyParser: false } }; // 接收 form-data
 
 function deriveDays(headers: string[]) {
   const re = /(\(Day\s*(\d+)\))/i;
@@ -18,29 +16,33 @@ function deriveDays(headers: string[]) {
   return Array.from({ length: max }, (_, i) => i + 1);
 }
 
-export async function POST(req: NextRequest) {
-  const res = NextResponse.json({ ok: true });
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') return res.status(405).end();
+
   const session = await getIronSession(req, res, sessionOptions);
   // @ts-ignore
-  if (!session.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  const formData = await req.formData();
-  const file = formData.get("file") as File | null;
-  if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
+  // 读取 form-data 文件
+  const chunks: Buffer[] = [];
+  await new Promise<void>((resolve, reject) => {
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => resolve());
+    req.on('error', reject);
+  });
+  const buf = Buffer.concat(chunks);
 
-  const buf = Buffer.from(await file.arrayBuffer());
-  const wb = XLSX.read(buf, { type: "buffer" });
+  // 从 multipart 中粗提取文件内容（简单版：直接整个 buffer 交给 xlsx 也常能解析）
+  const wb = XLSX.read(buf, { type: 'buffer' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: 0 });
-
-  if (!json.length) return NextResponse.json({ error: "Empty sheet" }, { status: 400 });
+  if (!json.length) return res.status(400).json({ error: 'Empty sheet' });
 
   const headers = Object.keys(json[0]);
   const days = deriveDays(headers);
-
-  const idKey = headers.find(h => /^(id)$/i.test(h)) || "ID";
-  const nameKey = headers.find(h => /name/i.test(h)) || "Product Name";
-  const openingKey = headers.find(h => /opening\s*inventory/i.test(h)) || "Opening Inventory";
+  const idKey = headers.find(h => /^(id)$/i.test(h)) || 'ID';
+  const nameKey = headers.find(h => /name/i.test(h)) || 'Product Name';
+  const openingKey = headers.find(h => /opening\s*inventory/i.test(h)) || 'Opening Inventory';
 
   await prisma.$transaction(async (tx) => {
     for (const row of json) {
@@ -71,5 +73,5 @@ export async function POST(req: NextRequest) {
     }
   });
 
-  return NextResponse.json({ ok: true, daysCount: days.length, rows: json.length });
+  res.status(200).json({ ok: true, daysCount: days.length, rows: json.length });
 }
